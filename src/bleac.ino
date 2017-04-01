@@ -1,41 +1,55 @@
-#include "ACS712.h"
+#include <Arduino.h>
 
-/*
-  This example shows how to measure the power consumption
-  of devices in 230V electrical system
-  or any other system with alternative current
-*/
-
-// We have 30 amps version sensor connected to A0 pin of arduino
-// Replace with your version if necessary
-ACS712 sensor(ACS712_20A, A1);
+int FAN_PIN = 12;
 
 void setup() {
   Serial.begin(9600);
-
-  // calibrate() method calibrates zero point of sensor,
-  // It is not necessary, but may positively affect the accuracy
-  // Ensure that no current flows through the sensor at this moment
-  // If you are not sure that the current through the sensor will not leak during calibration - comment out this method
-  Serial.println("Calibrating... Ensure that no current flows through the sensor at this moment");
-  sensor.calibrate();
-  Serial.println("Done!");
+  Serial.println("Read Samsung AC Fan Hall Speed");
+  pinMode(FAN_PIN, INPUT);
 }
 
 void loop() {
-  // We use 230V because it is the common standard in European countries
-  // Change to your local, if necessary
-  float U = 220;
+  byte state, OldState;
+  int steps = 0;
+  int revSteps = 12;
+  bool Finished = false;
+  state = digitalRead(FAN_PIN); //**state = low
 
-  // To measure current we need to know the frequency of current
-  // By default 50Hz is used, but you can specify own, if necessary
-  float I = sensor.getCurrentAC(60);
+  unsigned long StartTime, CurrentTime, PrevTime;
 
-  // To calculate the power we need voltage multiplied by current
-  float P = U * I;
+  while (digitalRead(FAN_PIN) == state) { //**hold while low
+    // hold here while it doesnt change state/rev
+    StartTime = micros(); //**keep updating start counter
+    OldState = state;     //** keep last state updated
+  }
+  Serial.print("\ninit_step");
 
-  Serial.println(String("I = ") + I + " A");
-  Serial.println(String("P = ") + P + " Watts");
+  while (true) {
+    OldState = digitalRead(FAN_PIN);
+    // for (size_t i = 0; i < revSteps; i++) {
+    while (digitalRead(FAN_PIN) == OldState) {
+      CurrentTime = micros();
+      if (CurrentTime - StartTime > 1000000) { // wait 1s
+        Finished = true;
+        break;
+      }
+      // OldState = digitalRead(FAN_PIN);
+    }
+    // Serial.print("\nstep++");
+    steps++;
 
-  delay(1000);
+    if (Finished)
+      break;
+  }
+  // i++;
+  // }
+
+  Serial.print("Loop end, steps: ");
+  Serial.print(steps, DEC);
+
+  Serial.print("\tRPM: ");
+  Serial.print((steps / revSteps) * 60, DEC);
+
+    Serial.print("\tRPMstep: ");
+  Serial.println(steps*5, DEC);
 }
