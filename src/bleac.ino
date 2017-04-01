@@ -1,55 +1,81 @@
-#include <Arduino.h>
+/*
+   Written by: Ahmad Saeed Mohammad Saeed
+   mail: ahmad._.saeed@outlook.com
+*/
 
-int FAN_PIN = 12;
+#define A        8                     // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
+#define A_bar    4                     // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
+#define B        2                     // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
+#define B_bar    7                     // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
+#define x        3000                  // smaller values may make the motor produce more speed and less torque
+#define stepsPerRevolution 700         // you can the number of steps required to make a complete revolution in the data sheet of your motor
+
 
 void setup() {
+  pinMode(A, OUTPUT);
+  pinMode(A_bar, OUTPUT);
+  pinMode(B, OUTPUT);
+  pinMode(B_bar, OUTPUT);
   Serial.begin(9600);
-  Serial.println("Read Samsung AC Fan Hall Speed");
-  pinMode(FAN_PIN, INPUT);
+  Serial.println("Setup...");
 }
 
+
 void loop() {
-  byte state, OldState;
-  int steps = 0;
-  int revSteps = 12;
-  bool Finished = false;
-  state = digitalRead(FAN_PIN); //**state = low
+    for (int i = 0; i < (stepsPerRevolution / 4) ; i++) {
+      digitalWrite(A, HIGH);
+      digitalWrite(A_bar, LOW);
+      digitalWrite(B, HIGH);
+      digitalWrite(B_bar, LOW);
+      delayMicroseconds (x);
 
-  unsigned long StartTime, CurrentTime, PrevTime;
+      digitalWrite(A, LOW);
+      digitalWrite(A_bar, HIGH);
+      digitalWrite(B, HIGH);
+      digitalWrite(B_bar, LOW);
+      delayMicroseconds (x);
 
-  while (digitalRead(FAN_PIN) == state) { //**hold while low
-    // hold here while it doesnt change state/rev
-    StartTime = micros(); //**keep updating start counter
-    OldState = state;     //** keep last state updated
-  }
-  Serial.print("\ninit_step");
+      digitalWrite(A, LOW);
+      digitalWrite(A_bar, HIGH);
+      digitalWrite(B, LOW);
+      digitalWrite(B_bar, HIGH);
+      delayMicroseconds (x);
 
-  while (true) {
-    OldState = digitalRead(FAN_PIN);
-    // for (size_t i = 0; i < revSteps; i++) {
-    while (digitalRead(FAN_PIN) == OldState) {
-      CurrentTime = micros();
-      if (CurrentTime - StartTime > 1000000) { // wait 1s
-        Finished = true;
-        break;
-      }
-      // OldState = digitalRead(FAN_PIN);
+      digitalWrite(A, HIGH);
+      digitalWrite(A_bar, LOW);
+      digitalWrite(B, LOW);
+      digitalWrite(B_bar, HIGH);
+      delayMicroseconds (x);
     }
-    // Serial.print("\nstep++");
-    steps++;
 
-    if (Finished)
-      break;
+    delay(500);  // the motor will complete a full revolution then waits for a second
+
+  //Counter Direction
+  for (int i = 0; i < (stepsPerRevolution / 4); i++) {
+    digitalWrite(A, HIGH);
+    digitalWrite(A_bar, LOW);
+    digitalWrite(B, LOW);
+    digitalWrite(B_bar, HIGH);
+    delayMicroseconds (x);
+
+    digitalWrite(A, LOW);
+    digitalWrite(A_bar, HIGH);
+    digitalWrite(B, LOW);
+    digitalWrite(B_bar, HIGH);
+    delayMicroseconds (x);
+
+    digitalWrite(A, LOW);
+    digitalWrite(A_bar, HIGH);
+    digitalWrite(B, HIGH);
+    digitalWrite(B_bar, LOW);
+    delayMicroseconds (x);
+
+    digitalWrite(A, HIGH);
+    digitalWrite(A_bar, LOW);
+    digitalWrite(B, HIGH);
+    digitalWrite(B_bar, LOW);
+    delayMicroseconds (x);
   }
-  // i++;
-  // }
-
-  Serial.print("Loop end, steps: ");
-  Serial.print(steps, DEC);
-
-  Serial.print("\tRPM: ");
-  Serial.print((steps / revSteps) * 60, DEC);
-
-    Serial.print("\tRPMstep: ");
-  Serial.println(steps*5, DEC);
+  Serial.println("16 step loop...");
+  delay(1000);
 }
