@@ -1,81 +1,42 @@
-/*
-   Written by: Ahmad Saeed Mohammad Saeed
-   mail: ahmad._.saeed@outlook.com
-*/
+#define CASE_TERMISTOR_PIN A2
+#define EXCHANGER_TERMISTOR_PIN A3
 
-#define A        8                     // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
-#define A_bar    4                     // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
-#define B        2                     // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
-#define B_bar    7                     // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
-#define x        3000                  // smaller values may make the motor produce more speed and less torque
-#define stepsPerRevolution 700         // you can the number of steps required to make a complete revolution in the data sheet of your motor
+int raw = 0;
+float Vin = 4.73;
+float Vout = 0;
+float R1 = 1000;
+float R2 = 0;
+float buffer = 0;
 
+int current_pin;
 
 void setup() {
-  pinMode(A, OUTPUT);
-  pinMode(A_bar, OUTPUT);
-  pinMode(B, OUTPUT);
-  pinMode(B_bar, OUTPUT);
-  Serial.begin(9600);
-  Serial.println("Setup...");
-}
-
+  current_pin = CASE_TERMISTOR_PIN;
+  Serial.begin(9600); }
 
 void loop() {
-    for (int i = 0; i < (stepsPerRevolution / 4) ; i++) {
-      digitalWrite(A, HIGH);
-      digitalWrite(A_bar, LOW);
-      digitalWrite(B, HIGH);
-      digitalWrite(B_bar, LOW);
-      delayMicroseconds (x);
 
-      digitalWrite(A, LOW);
-      digitalWrite(A_bar, HIGH);
-      digitalWrite(B, HIGH);
-      digitalWrite(B_bar, LOW);
-      delayMicroseconds (x);
-
-      digitalWrite(A, LOW);
-      digitalWrite(A_bar, HIGH);
-      digitalWrite(B, LOW);
-      digitalWrite(B_bar, HIGH);
-      delayMicroseconds (x);
-
-      digitalWrite(A, HIGH);
-      digitalWrite(A_bar, LOW);
-      digitalWrite(B, LOW);
-      digitalWrite(B_bar, HIGH);
-      delayMicroseconds (x);
-    }
-
-    delay(500);  // the motor will complete a full revolution then waits for a second
-
-  //Counter Direction
-  for (int i = 0; i < (stepsPerRevolution / 4); i++) {
-    digitalWrite(A, HIGH);
-    digitalWrite(A_bar, LOW);
-    digitalWrite(B, LOW);
-    digitalWrite(B_bar, HIGH);
-    delayMicroseconds (x);
-
-    digitalWrite(A, LOW);
-    digitalWrite(A_bar, HIGH);
-    digitalWrite(B, LOW);
-    digitalWrite(B_bar, HIGH);
-    delayMicroseconds (x);
-
-    digitalWrite(A, LOW);
-    digitalWrite(A_bar, HIGH);
-    digitalWrite(B, HIGH);
-    digitalWrite(B_bar, LOW);
-    delayMicroseconds (x);
-
-    digitalWrite(A, HIGH);
-    digitalWrite(A_bar, LOW);
-    digitalWrite(B, HIGH);
-    digitalWrite(B_bar, LOW);
-    delayMicroseconds (x);
+  if (current_pin == CASE_TERMISTOR_PIN) {
+    raw = analogRead(CASE_TERMISTOR_PIN);
+    current_pin = EXCHANGER_TERMISTOR_PIN; //swap
+    Serial.print("Case ");
+  } else {
+    raw = analogRead(EXCHANGER_TERMISTOR_PIN);
+    current_pin = CASE_TERMISTOR_PIN; //swap back
+    Serial.print("Exchanger ");
   }
-  Serial.println("16 step loop...");
-  delay(1000);
+
+  if (raw) {
+    Serial.print("raw: ");
+    Serial.print(raw);
+    buffer = raw * Vin;
+    Vout = (buffer) / 1024.0;
+    buffer = (Vin / Vout) - 1;
+    R2 = R1 * buffer;
+    Serial.print("\tVout: ");
+    Serial.print(Vout);
+    Serial.print("\tR2: ");
+    Serial.println(R2);
+    delay(1000);
+  }
 }
