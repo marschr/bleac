@@ -1,5 +1,8 @@
+#include <Arduino.h>
 #include <Stepper.h>
 #include <ACS712.h>
+#include <OneWire.h>
+
 
 //STEPPER MOTOR SETTINGS
 #define PIN_COIL_A                        8    // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
@@ -42,53 +45,110 @@
 int current_pin = PIN_ANALOG_TSENSE_INPUT_CASE;
 
 bool   debug = true;
+
+//ACS712 lib init
 ACS712 sensor(ACS712_20A, PIN_ANALOG_ACS712);
 
-void setup() {
-    if (debug) Serial.begin(9600);
-    //set all pins
+//DS18x20 pin and init
+OneWire  ds(11);
 
-    if (debug) Serial.println("setting up pin modes");
-
-    //TODO: use ports registers
-    pinMode(PIN_FAN_HALL, PIN_MODE_FAN_HALL);                                             //fan speed pin setup
-    pinMode(PIN_IR_READ, PIN_MODE_IR_READ);                                               //infrared pin setup
-    pinMode(PIN_ANALOG_TSENSE_INPUT_CASE, PIN_MODE_ANALOG_TSENSE_INPUT_CASE);             //analog case tsense pin setup
-    pinMode(PIN_ANALOG_TSENSE_INPUT_HEXCHANGER, PIN_MODE_ANALOG_TSENSE_INPUT_HEXCHANGER); //analog HEx tsense pin setup
-    pinMode(PIN_TSENSE_EMULATOR_CASE, PIN_MODE_TSENSE_EMULATOR);                          // tsense emulator case pin setup
-    pinMode(PIN_TSENSE_EMULATOR_HEXCHANGER, PIN_MODE_TSENSE_EMULATOR);                    // tsense emulator hex pin setup
-    sensor.calibrate();
-    if (debug) Serial.println("setup() done.");
-}
-
-
-void loop() {
-    //1 - Init config/settings
-    //2 - Read temps
-    //3 - Write analog tsense emulator
-    //4 - wait for AC mainboard to move stepper to startup position
-    //4.1 - move stepper to set initial position
-    //5 - read everything
-    //5.1 - fan speed
-    //5.2 - analog tsensors
-    //5.3 - ds18b20s
-    //5.4 - recalculate pwm duty based on virtual circuit + integral
-    //      approx of temp over time due to external temps
-    //5.5 - update analog tsense emulator
-    //5.6 - read ACS power
-    //5.7 - accumulate data
-    //6 - move stepper to next endpoint
-    //7 - jump to 5, wait for BLE/IR interrupt with new settings
-
-
-    if (debug) Serial.print("loop() read_fan_speed(): ");
-    read_fan_speed();
-    read_analog_tsenses();
-    read_db18s20();
-}
 
 void read_db18s20(){
+    byte i;
+    byte present = 0;
+    byte type_s;
+    byte data[12];
+    byte addr[8];
+    float celsius, fahrenheit;
 
+    if ( !ds.search(addr)) {
+    Serial.println("No more addresses.");
+    Serial.println();
+    ds.reset_search();
+    delay(250);
+    return;
+    }
+
+    Serial.print("ROM =");
+    for( i = 0; i < 8; i++) {
+    Serial.write(' ');
+    Serial.print(addr[i], HEX);
+    }
+
+    if (OneWire::crc8(addr, 7) != addr[7]) {
+        Serial.println("CRC is not valid!");
+        return;
+    }
+    Serial.println();
+
+    // the first ROM byte indicates which chip
+    switch (addr[0]) {
+    case 0x10:
+        Serial.println("  Chip = DS18S20");  // or old DS1820
+        type_s = 1;
+        break;
+    case 0x28:
+        Serial.println("  Chip = DS18B20");
+        type_s = 0;
+        break;
+    case 0x22:
+        Serial.println("  Chip = DS1822");
+        type_s = 0;
+        break;
+    default:
+        Serial.println("Device is not a DS18x20 family device.");
+        return;
+    } 
+
+    ds.reset();
+    ds.select(addr);
+    ds.write(0x44, 1);        // start conversion, with parasite power on at the end
+
+    delay(1000);     // maybe 750ms is enough, maybe not
+    // we might do a ds.depower() here, but the reset will take care of it.
+
+    present = ds.reset();
+    ds.select(addr);    
+    ds.write(0xBE);         // Read Scratchpad
+
+    Serial.print("  Data = ");
+    Serial.print(present, HEX);
+    Serial.print(" ");
+    for ( i = 0; i < 9; i++) {           // we need 9 bytes
+    data[i] = ds.read();
+    Serial.print(data[i], HEX);
+    Serial.print(" ");
+    }
+    Serial.print(" CRC=");
+    Serial.print(OneWire::crc8(data, 8), HEX);
+    Serial.println();
+
+    // Convert the data to actual temperature
+    // because the result is a 16 bit signed integer, it should
+    // be stored to an "int16_t" type, which is always 16 bits
+    // even when compiled on a 32 bit processor.
+    int16_t raw = (data[1] << 8) | data[0];
+    if (type_s) {
+    raw = raw << 3; // 9 bit resolution default
+    if (data[7] == 0x10) {
+        // "count remain" gives full 12 bit resolution
+        raw = (raw & 0xFFF0) + 12 - data[6];
+    }
+    } else {
+    byte cfg = (data[4] & 0x60);
+    // at lower res, the low bits are undefined, so let's zero them
+    if (cfg == 0x00) raw = raw & ~7;  // 9 bit resolution, 93.75 ms
+    else if (cfg == 0x20) raw = raw & ~3; // 10 bit res, 187.5 ms
+    else if (cfg == 0x40) raw = raw & ~1; // 11 bit res, 375 ms
+    //// default is 12 bit resolution, 750 ms conversion time
+    }
+    celsius = (float)raw / 16.0;
+    fahrenheit = celsius * 1.8 + 32.0;
+    Serial.print("  Temperature = ");
+    Serial.print(celsius);
+    Serial.print(" Celsius, ");
+    Serial.print(fahrenheit);
+    Serial.println(" Fahrenheit");
 }
 
 void stepper_flap() {
@@ -123,8 +183,8 @@ int calculate_pwm_duty() {
     // coarsing values for integral calculation
     // virtual circuit ohm resitor values
 
-    int caseVal      = 170;
-    int exchangerVal = 160;
+    int caseVal      = 130;
+    int exchangerVal = 110;
 
     analogWrite(PIN_TSENSE_EMULATOR_CASE, caseVal);
     analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
@@ -167,6 +227,32 @@ void read_analog_tsenses() {
     }
 }
 
+void ouput_checksum(unsigned int ones_sum) {
+    Serial.print("\nones count: ");
+    Serial.print(ones_sum);
+
+    byte checksum = ones_sum % 15;
+    if (checksum == 0) {
+        checksum = 15;
+    }
+    Serial.print("\t mod15: 0b");
+    Serial.print(checksum, BIN);
+
+    checksum = ~checksum;
+    Serial.print("\t flip: 0b");
+    Serial.print(checksum & 0XF, BIN);
+
+    checksum = (checksum & 0xF0) >> 4 | (checksum & 0x0F) << 4;
+    checksum = (checksum & 0xCC) >> 2 | (checksum & 0x33) << 2;
+    checksum = (checksum & 0xAA) >> 1 | (checksum & 0x55) << 1;
+
+    checksum = (checksum & 0XF0) >> 4; // trim only 4 significant bits
+
+    Serial.print("\t rev: 0b");
+    Serial.print(checksum, BIN);
+    Serial.print("\t rev: 0x");
+    Serial.print(checksum, HEX);
+}
 
 //decode_ir() BEGIN!
 void decode_ir() {
@@ -302,34 +388,6 @@ void decode_ir() {
 }
 
 
-void ouput_checksum(unsigned int ones_sum) {
-    Serial.print("\nones count: ");
-    Serial.print(ones_sum);
-
-    byte checksum = ones_sum % 15;
-    if (checksum == 0) {
-        checksum = 15;
-    }
-    Serial.print("\t mod15: 0b");
-    Serial.print(checksum, BIN);
-
-    checksum = ~checksum;
-    Serial.print("\t flip: 0b");
-    Serial.print(checksum & 0XF, BIN);
-
-    checksum = (checksum & 0xF0) >> 4 | (checksum & 0x0F) << 4;
-    checksum = (checksum & 0xCC) >> 2 | (checksum & 0x33) << 2;
-    checksum = (checksum & 0xAA) >> 1 | (checksum & 0x55) << 1;
-
-    checksum = (checksum & 0XF0) >> 4; // trim only 4 significant bits
-
-    Serial.print("\t rev: 0b");
-    Serial.print(checksum, BIN);
-    Serial.print("\t rev: 0x");
-    Serial.print(checksum, HEX);
-}
-
-
 //decode_ir() END!
 
 //read_fan_speed() BEGIN!
@@ -375,4 +433,50 @@ int read_fan_speed() {
     }
 
     return 1;
+}
+
+
+void setup() {
+    if (debug) Serial.begin(57600);
+    //set all pins
+
+    if (debug) Serial.println("setting up pin modes");
+
+    //TODO: use ports registers
+    pinMode(PIN_FAN_HALL, PIN_MODE_FAN_HALL);                                             //fan speed pin setup
+    pinMode(PIN_IR_READ, PIN_MODE_IR_READ);                                               //infrared pin setup
+    pinMode(PIN_ANALOG_TSENSE_INPUT_CASE, PIN_MODE_ANALOG_TSENSE_INPUT_CASE);             //analog case tsense pin setup
+    pinMode(PIN_ANALOG_TSENSE_INPUT_HEXCHANGER, PIN_MODE_ANALOG_TSENSE_INPUT_HEXCHANGER); //analog HEx tsense pin setup
+    pinMode(PIN_TSENSE_EMULATOR_CASE, PIN_MODE_TSENSE_EMULATOR);                          // tsense emulator case pin setup
+    pinMode(PIN_TSENSE_EMULATOR_HEXCHANGER, PIN_MODE_TSENSE_EMULATOR);                    // tsense emulator hex pin setup
+    sensor.calibrate();
+    if (debug) Serial.println("setup() done.");
+}
+
+void loop() {
+    //1 - Init config/settings
+    //2 - Read temps
+    //3 - Write analog tsense emulator
+    //4 - wait for AC mainboard to move stepper to startup position
+    //4.1 - move stepper to set initial position
+    //5 - read everything
+    //5.1 - fan speed
+    //5.2 - analog tsensors
+    //5.3 - ds18b20s
+    //5.4 - recalculate pwm duty based on virtual circuit + integral
+    //      approx of temp over time due to external temps
+    //5.5 - update analog tsense emulator
+    //5.6 - read ACS power
+    //5.7 - accumulate data
+    //6 - move stepper to next endpoint
+    //7 - jump to 5, wait for BLE/IR interrupt with new settings
+
+
+    if (debug) Serial.print("loop() read_fan_speed(): \n");
+    // delay(2000);
+    // read_fan_speed();
+    calculate_pwm_duty();
+    // read_analog_tsenses();
+    read_db18s20();
+    read_acs712();
 }
