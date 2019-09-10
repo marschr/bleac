@@ -2,6 +2,7 @@
 #include <Stepper.h>
 #include <ACS712.h>
 #include <OneWire.h>
+#include <Stepper.h>
 
 
 //STEPPER MOTOR SETTINGS
@@ -51,6 +52,9 @@ ACS712 sensor(ACS712_20A, PIN_ANALOG_ACS712);
 
 //DS18x20 pin and init
 OneWire  ds(11);
+
+//Stepper flap init
+Stepper myStepper(STEPS_PER_REV, PIN_COIL_A, PIN_COIL_A_bar, PIN_COIL_B, PIN_COIL_B_bar);
 
 
 void read_db18s20(){
@@ -152,12 +156,45 @@ void read_db18s20(){
 }
 
 void stepper_flap() {
+
     //TODO: define protocol modes: full up, full down, angle, swing from angle to angle;
     //TODO:
     //if (startangle == endangle) {move to pos; goto read loop}
     // else { move to posA; goto read loop; move to posB}
 
-    //Stepper myStepper(stepsPerRevolution, 8, 9, 10, 11);
+    pinMode(PIN_COIL_A, OUTPUT);    
+    pinMode(PIN_COIL_A_bar, OUTPUT);
+    pinMode(PIN_COIL_B, OUTPUT);    
+    pinMode(PIN_COIL_B_bar, OUTPUT);
+
+    //Could swing at speed 8~10, tho 10 and above it may skip a few steps (thus needing to zero the position again)
+    //
+    myStepper.setSpeed(5);
+
+    //Reset flat position (should be moved into init code after)
+    //-1500 seems a bit too much, need to figure out proper values compatible with a non skipping speed
+    Serial.println("Reseting stepper position");
+    myStepper.step(-1500);
+
+    Serial.println("stepping...");
+
+    myStepper.step(STEPS_PER_REV);
+
+    Serial.println("sleeping 1s...");
+    delay(1000);
+
+    Serial.println("stepping reverse...");
+
+    myStepper.step(-STEPS_PER_REV);
+
+
+    //We need to reset the pins back to INPUT so the AC controller can also controll the flap (if we really want to)
+    Serial.println("resetting stepper pins...");
+    pinMode(PIN_COIL_A, INPUT);    
+    pinMode(PIN_COIL_A_bar, INPUT);
+    pinMode(PIN_COIL_B, INPUT);    
+    pinMode(PIN_COIL_B_bar, INPUT);
+    
 }
 
 
@@ -449,6 +486,8 @@ void setup() {
     pinMode(PIN_ANALOG_TSENSE_INPUT_HEXCHANGER, PIN_MODE_ANALOG_TSENSE_INPUT_HEXCHANGER); //analog HEx tsense pin setup
     pinMode(PIN_TSENSE_EMULATOR_CASE, PIN_MODE_TSENSE_EMULATOR);                          // tsense emulator case pin setup
     pinMode(PIN_TSENSE_EMULATOR_HEXCHANGER, PIN_MODE_TSENSE_EMULATOR);                    // tsense emulator hex pin setup
+    
+    //ACS712 init
     sensor.calibrate();
     if (debug) Serial.println("setup() done.");
 }
@@ -479,4 +518,7 @@ void loop() {
     // read_analog_tsenses();
     read_db18s20();
     read_acs712();
+    Serial.println("Waiting 4s before step reset...");
+    delay(4000);
+    stepper_flap();
 }
