@@ -230,15 +230,32 @@ int calculate_pwm_duty() {
     return 1;
 }
 
+//Reads internal Arduino VRef
+long readVcc() { long result;
+    // Read 1.1V reference against AVcc
+    ADMUX = _BV(REFS0) | _BV(MUX3) | _BV(MUX2) | _BV(MUX1);
+    delay(2);
+    // Wait for Vref to settle
+    ADCSRA |= _BV(ADSC);
+    // Convert
+    while (bit_is_set(ADCSRA,ADSC));
+    result = ADCL;
+    result |= ADCH<<8;
+    result = 1126400L / result;
+    // Back-calculate AVcc in mV
+    return result;
+ }
 
 void read_analog_tsenses() {
     int   raw    = 0;
-    float Vin    = 4.73;
+    float Vin    = readVcc();
     float Vout   = 0;
-    float R1     = 1000;
+    float R1     = 990;
     float R2     = 0;
     float buffer = 0;
 
+    Serial.print("Vin");
+    Serial.println(Vin);
     if (current_pin == PIN_ANALOG_TSENSE_INPUT_CASE) {
         raw         = analogRead(PIN_ANALOG_TSENSE_INPUT_CASE);
         current_pin = PIN_ANALOG_TSENSE_INPUT_HEXCHANGER; //swap
@@ -262,6 +279,8 @@ void read_analog_tsenses() {
         Serial.print("\tR2: ");
         Serial.println(R2);
     }
+
+    Serial.print("\n");
 }
 
 void ouput_checksum(unsigned int ones_sum) {
@@ -512,22 +531,22 @@ void loop() {
     //7 - jump to 5, wait for BLE/IR interrupt with new settings
 
 
-    if (debug) Serial.print("loop() read_fan_speed(): \n");
-    // delay(2000);
-    read_fan_speed();
+    // if (debug) Serial.print("loop() read_fan_speed(): \n");
+    // read_fan_speed();
 
-    if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
+    // if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
     calculate_pwm_duty();
 
     if (debug) Serial.print("loop() read_analog_tsenses(): \n");
-    // read_analog_tsenses();
+    read_analog_tsenses();
+    delay(1000);
 
     if (debug) Serial.print("loop() read_db18s20(): \n");
     read_db18s20();
 
-    if (debug) Serial.print("loop() read_acs712(): \n");
-    read_acs712();
+    // if (debug) Serial.print("loop() read_acs712(): \n");
+    // read_acs712();
 
-    if (debug) Serial.print("loop() stepper_flap(): \n");
+    // if (debug) Serial.print("loop() stepper_flap(): \n");
     // stepper_flap();
 }
