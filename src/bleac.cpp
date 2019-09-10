@@ -173,7 +173,7 @@ void stepper_flap() {
 
     //Reset flat position (should be moved into init code after)
     //-1500 seems a bit too much, need to figure out proper values compatible with a non skipping speed
-    Serial.println("Reseting stepper position");
+    Serial.println("Reseting stepper position...");
     myStepper.step(-1500);
 
     Serial.println("stepping...");
@@ -436,17 +436,18 @@ int read_fan_speed() {
 
     state = digitalRead(PIN_FAN_HALL);           //**state = low
     unsigned long StartTime, CurrentTime, PrevTime;
-    while (digitalRead(PIN_FAN_HALL) == state) { //hold while low
-                                                 // hold here while it doesnt change state/rev
-        StartTime = micros();                    //**keep updating start counter
-        OldState  = state;                       //** keep last state updated
+    StartTime = micros();
+    while (digitalRead(PIN_FAN_HALL) == state && CurrentTime - StartTime < 1000000) { //hold while low
+                                                 // hold here 1s while it doesnt change state/rev
+        CurrentTime = micros();                    //**keep updating start counter
+        OldState  = state;                      //** keep last state updated
     }
     if (debug) Serial.print("\ninit_step");
 
     while (true) {
         OldState = digitalRead(PIN_FAN_HALL);
         while (digitalRead(PIN_FAN_HALL) == OldState) {
-            CurrentTime = micros();
+            CurrentTime = micros(); //re-read current time so we get a more accurate sampling (avoiding slow serial writes)
             if (CurrentTime - StartTime > 1000000) {         // wait 1s
                 Finished = true;
                 break;
@@ -513,12 +514,20 @@ void loop() {
 
     if (debug) Serial.print("loop() read_fan_speed(): \n");
     // delay(2000);
-    // read_fan_speed();
+    read_fan_speed();
+
+    if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
     calculate_pwm_duty();
+
+    if (debug) Serial.print("loop() read_analog_tsenses(): \n");
     // read_analog_tsenses();
+
+    if (debug) Serial.print("loop() read_db18s20(): \n");
     read_db18s20();
+
+    if (debug) Serial.print("loop() read_acs712(): \n");
     read_acs712();
-    Serial.println("Waiting 4s before step reset...");
-    delay(4000);
-    stepper_flap();
+
+    if (debug) Serial.print("loop() stepper_flap(): \n");
+    // stepper_flap();
 }
