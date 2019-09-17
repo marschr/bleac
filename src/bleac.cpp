@@ -6,10 +6,10 @@
 
 
 //STEPPER MOTOR SETTINGS
-#define PIN_COIL_A                        8    // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_COIL_A_bar                    4    // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_COIL_B                        6    // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_COIL_B_bar                    7    // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_A                        6    // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_A_bar                    4    // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_B                        8    // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_B_bar                    7    // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
 #define TORQUE_SETTLE_TIME                3000 // smaller values may make the motor produce more speed and less torque
 #define STEPS_PER_REV                     700  // you can the number of steps required to make a complete revolution in the data sheet of your motor
 
@@ -39,13 +39,58 @@
 #define AC_LINE_HERTZ                              60
 
 //ANALOG TEMPERATURE SENSORS SETTINGS
-#define PIN_ANALOG_TSENSE_INPUT_CASE               A2
-#define PIN_ANALOG_TSENSE_INPUT_HEXCHANGER         A3
+#define PIN_ANALOG_TSENSE_INPUT_CASE               A3
+#define PIN_ANALOG_TSENSE_INPUT_HEXCHANGER         A2
 #define PIN_MODE_ANALOG_TSENSE_INPUT_CASE          INPUT
 #define PIN_MODE_ANALOG_TSENSE_INPUT_HEXCHANGER    INPUT
 int current_pin = PIN_ANALOG_TSENSE_INPUT_CASE;
 
 bool   debug = true;
+
+//Thermistor temperature to ohms table, from -9 celsius to +50 celsius (10kohms at 25C) (103AT Thermistor)
+unsigned int ThermistorArray[60] = {40560, 38760, 37050, 35430, 33890, 32430, 31040, 29720, 28470, 27280, // -9 to 0
+                                    26130, 25030, 23900, 22990, 22050, 21150, 20290, 19480, 18700, 17960, // 1 to 10
+                                    17240, 16550, 15900, 15280, 14680, 14120, 13570, 13060, 12560, 12090, // 11 to 20
+                                    11630, 11200, 10780, 10380, 10000,  9632,  9281,  8944,  8622,  8313, // 21 to 30
+                                    8015,   7729,  7455,  7192,  6941,  6699,  6468,  6246,  6033,  5828, // 31 to 40
+                                    5630,   5439,  5256,  5080,  4912,  4749,  4594,  4444,  4300,  4161};// 41 to 50
+
+//Result from temps array is an int with XX.XX celcius (two decimal points)
+int tempsFromArray(unsigned int ohms){
+    int resultTemp;
+    size_t isize = sizeof(ThermistorArray) / sizeof(ThermistorArray[0]);
+    for (size_t i = 0; i < isize - 1; i++) //iterate for values of Thermistor array -1 = 59;
+    {
+        if (ThermistorArray[i] >= ohms && ohms > ThermistorArray[i+1]) {
+            // if (debug) Serial.print("index[");
+            // if (debug) Serial.print(i, DEC);
+            // if (debug) Serial.print("]: ");
+            // if (debug) Serial.print(ThermistorArray[i]);
+            // if (debug) Serial.print(" temp from table: ");
+            // if (debug) Serial.println((int)i-9, DEC);
+
+            //get the range between the found table temp and the next
+            int range = ThermistorArray[i] - ThermistorArray[i+1];
+            // if (debug) Serial.print("range->");
+            // if (debug) Serial.print(range, DEC);
+
+            //calculate how many ohms above the next (hotter) table temp
+            long val = ohms - ThermistorArray[i+1];
+            // if (debug) Serial.print(" val->");
+            // if (debug) Serial.println(val, DEC);
+            
+            //use map to interpolate the decimal range
+            int decimals = map(val, range, 0, 0, 100);
+            // if (debug) Serial.println(decimals, DEC);
+
+            resultTemp = ((int)i-9)*100 + decimals;
+            break;
+        }
+    }
+    // if (debug) Serial.print("result: ");
+    // if (debug) Serial.println(resultTemp);
+    return resultTemp;
+}
 
 //ACS712 lib init
 ACS712 sensor(ACS712_20A, PIN_ANALOG_ACS712);
@@ -54,7 +99,7 @@ ACS712 sensor(ACS712_20A, PIN_ANALOG_ACS712);
 OneWire  ds(11);
 
 //Stepper flap init
-Stepper myStepper(STEPS_PER_REV, PIN_COIL_A, PIN_COIL_A_bar, PIN_COIL_B, PIN_COIL_B_bar);
+Stepper myStepper(STEPS_PER_REV, PIN_STEPPER_COIL_A, PIN_STEPPER_COIL_A_bar, PIN_STEPPER_COIL_B, PIN_STEPPER_COIL_B_bar);
 
 
 void read_db18s20(){
@@ -162,38 +207,32 @@ void stepper_flap() {
     //if (startangle == endangle) {move to pos; goto read loop}
     // else { move to posA; goto read loop; move to posB}
 
-    pinMode(PIN_COIL_A, OUTPUT);    
-    pinMode(PIN_COIL_A_bar, OUTPUT);
-    pinMode(PIN_COIL_B, OUTPUT);    
-    pinMode(PIN_COIL_B_bar, OUTPUT);
+    pinMode(PIN_STEPPER_COIL_A, OUTPUT);    
+    pinMode(PIN_STEPPER_COIL_A_bar, OUTPUT);
+    pinMode(PIN_STEPPER_COIL_B, OUTPUT);    
+    pinMode(PIN_STEPPER_COIL_B_bar, OUTPUT);
 
     //Could swing at speed 8~10, tho 10 and above it may skip a few steps (thus needing to zero the position again)
     //
-    myStepper.setSpeed(5);
+    myStepper.setSpeed(35);
 
     //Reset flat position (should be moved into init code after)
     //-1500 seems a bit too much, need to figure out proper values compatible with a non skipping speed
     Serial.println("Reseting stepper position...");
-    myStepper.step(-1500);
+    myStepper.step(-STEPS_PER_REV-50);
 
     Serial.println("stepping...");
 
+    myStepper.setSpeed(35);
+
     myStepper.step(STEPS_PER_REV);
-
-    Serial.println("sleeping 1s...");
-    delay(1000);
-
-    Serial.println("stepping reverse...");
-
-    myStepper.step(-STEPS_PER_REV);
-
 
     //We need to reset the pins back to INPUT so the AC controller can also controll the flap (if we really want to)
     Serial.println("resetting stepper pins...");
-    pinMode(PIN_COIL_A, INPUT);    
-    pinMode(PIN_COIL_A_bar, INPUT);
-    pinMode(PIN_COIL_B, INPUT);    
-    pinMode(PIN_COIL_B_bar, INPUT);
+    pinMode(PIN_STEPPER_COIL_A, INPUT);    
+    pinMode(PIN_STEPPER_COIL_A_bar, INPUT);
+    pinMode(PIN_STEPPER_COIL_B, INPUT);    
+    pinMode(PIN_STEPPER_COIL_B_bar, INPUT);
     
 }
 
@@ -279,6 +318,8 @@ void read_analog_tsenses() {
         Serial.print("\tR2: ");
         Serial.println(R2);
     }
+
+    Serial.println((float)tempsFromArray(R2)/100, DEC);
 
     Serial.print("\n");
 }
@@ -461,7 +502,7 @@ int read_fan_speed() {
         CurrentTime = micros();                    //**keep updating start counter
         OldState  = state;                      //** keep last state updated
     }
-    if (debug) Serial.print("\ninit_step");
+    if (debug) Serial.print("init_step ");
 
     while (true) {
         OldState = digitalRead(PIN_FAN_HALL);
@@ -492,11 +533,10 @@ int read_fan_speed() {
     return 1;
 }
 
-
 void setup() {
     if (debug) Serial.begin(57600);
+    
     //set all pins
-
     if (debug) Serial.println("setting up pin modes");
 
     //TODO: use ports registers
@@ -508,7 +548,15 @@ void setup() {
     pinMode(PIN_TSENSE_EMULATOR_HEXCHANGER, PIN_MODE_TSENSE_EMULATOR);                    // tsense emulator hex pin setup
     
     //ACS712 init
+    
     sensor.calibrate();
+
+    //Let AC mcu control flap
+    pinMode(PIN_STEPPER_COIL_A, INPUT);    
+    pinMode(PIN_STEPPER_COIL_A_bar, INPUT);
+    pinMode(PIN_STEPPER_COIL_B, INPUT);    
+    pinMode(PIN_STEPPER_COIL_B_bar, INPUT);
+
     if (debug) Serial.println("setup() done.");
 }
 
@@ -516,7 +564,7 @@ void loop() {
     //1 - Init config/settings
     //2 - Read temps
     //3 - Write analog tsense emulator
-    //4 - wait for AC mainboard to move stepper to startup position
+    //4 - wait for AC mainboard to move stepper to startup position (could be moved after we read everything on 5)
     //4.1 - move stepper to set initial position
     //5 - read everything
     //5.1 - fan speed
@@ -531,21 +579,20 @@ void loop() {
     //7 - jump to 5, wait for BLE/IR interrupt with new settings
 
 
-    // if (debug) Serial.print("loop() read_fan_speed(): \n");
-    // read_fan_speed();
+    if (debug) Serial.print("loop() read_fan_speed(): \n");
+    read_fan_speed();
 
-    // if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
+    if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
     calculate_pwm_duty();
 
     if (debug) Serial.print("loop() read_analog_tsenses(): \n");
     read_analog_tsenses();
-    delay(1000);
 
     if (debug) Serial.print("loop() read_db18s20(): \n");
     read_db18s20();
 
-    // if (debug) Serial.print("loop() read_acs712(): \n");
-    // read_acs712();
+    if (debug) Serial.print("loop() read_acs712(): \n");
+    read_acs712();
 
     // if (debug) Serial.print("loop() stepper_flap(): \n");
     // stepper_flap();
