@@ -6,12 +6,12 @@
 
 
 //STEPPER MOTOR SETTINGS
-#define PIN_STEPPER_COIL_A                        6    // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_STEPPER_COIL_A_bar                    4    // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_STEPPER_COIL_B                        8    // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
-#define PIN_STEPPER_COIL_B_bar                    7    // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_A                  6    // the pin connected to the wire A of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_A_bar              4    // the pin connected to the wire A- of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_B                  8    // the pin connected to the wire B of the coil A (or to the H-bridge pin controlling the same wire)
+#define PIN_STEPPER_COIL_B_bar              7    // the pin connected to the wire B- of the coil A (or to the H-bridge pin controlling the same wire)
 #define TORQUE_SETTLE_TIME                3000 // smaller values may make the motor produce more speed and less torque
-#define STEPS_PER_REV                     700  // you can the number of steps required to make a complete revolution in the data sheet of your motor
+#define STEPS_PER_REV                      700  // you can the number of steps required to make a complete revolution in the data sheet of your motor
 
 //INFRARED SETTINGS
 #define PIN_IR_READ                       5
@@ -48,12 +48,13 @@ int current_pin = PIN_ANALOG_TSENSE_INPUT_CASE;
 bool   debug = true;
 
 //Thermistor temperature to ohms table, from -9 celsius to +50 celsius (10kohms at 25C) (103AT Thermistor)
-unsigned int ThermistorArray[60] = {40560, 38760, 37050, 35430, 33890, 32430, 31040, 29720, 28470, 27280, // -9 to 0
-                                    26130, 25030, 23900, 22990, 22050, 21150, 20290, 19480, 18700, 17960, // 1 to 10
-                                    17240, 16550, 15900, 15280, 14680, 14120, 13570, 13060, 12560, 12090, // 11 to 20
-                                    11630, 11200, 10780, 10380, 10000,  9632,  9281,  8944,  8622,  8313, // 21 to 30
-                                    8015,   7729,  7455,  7192,  6941,  6699,  6468,  6246,  6033,  5828, // 31 to 40
-                                    5630,   5439,  5256,  5080,  4912,  4749,  4594,  4444,  4300,  4161};// 41 to 50
+unsigned int ThermistorArray[60] = {
+    40560, 38760, 37050, 35430, 33890, 32430, 31040, 29720, 28470, 27280, // -9 to 0
+    26130, 25030, 23900, 22990, 22050, 21150, 20290, 19480, 18700, 17960, // 1 to 10
+    17240, 16550, 15900, 15280, 14680, 14120, 13570, 13060, 12560, 12090, // 11 to 20
+    11630, 11200, 10780, 10380, 10000,  9632,  9281,  8944,  8622,  8313, // 21 to 30
+    8015,   7729,  7455,  7192,  6941,  6699,  6468,  6246,  6033,  5828, // 31 to 40
+    5630,   5439,  5256,  5080,  4912,  4749,  4594,  4444,  4300,  4161};// 41 to 50
 
 //Result from temps array is an int with XX.XX celcius (two decimal points)
 int tempsFromArray(unsigned int ohms){
@@ -238,6 +239,8 @@ void stepper_flap() {
 
 
 void read_acs712() {
+    //TODO: maybe we could set a timout when the AC receives a TurnOff signal,
+    //      then time a few seconds and re-run the current sensor calibration
     float U = 220;
     float I = sensor.getCurrentAC(AC_LINE_HERTZ);
 
@@ -249,24 +252,35 @@ void read_acs712() {
 }
 
 
-int calculate_pwm_duty() {
+int calculate_pwm_duty(float vcc, float rther, int r1) {
     //higher values = lower temps
+    int caseVal      = 170;
+    int exchangerVal = 155;
 
     //needed fields:
-    // outdoor temps
-    // case and heat exchanger thermistor ohms val
-    // ds18b20s temperature vals
-    // coarsing values for integral calculation
+    // outdoor temps DONE
+    // case and heat exchanger thermistor ohms val DONE
+    // ds18b20s temperature vals DONE
     // virtual circuit ohm resitor values
+    // coarsing values for PID calculation using outside temp
 
-    int caseVal      = 130;
-    int exchangerVal = 110;
+    // Vout = Vcc*Rther / R1 + Rther
+    float vout = ((vcc/1000) * rther) / (r1 + rther);
 
-    analogWrite(PIN_TSENSE_EMULATOR_CASE, caseVal);
-    analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
+    Serial.print("calc vout:");
+    Serial.print(vout, DEC);
+    
+    // duty = (255/Vcc)*Vout
+    int duty = (255/(vcc/1000)) * vout;
+    
+    Serial.print(" calc duty:");
+    Serial.println(duty, DEC);
+
+    // analogWrite(PIN_TSENSE_EMULATOR_CASE, caseVal);
+    // analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
 
     //TODO: calculate it for real
-    return 1;
+    return duty;
 }
 
 //Reads internal Arduino VRef
@@ -289,7 +303,7 @@ void read_analog_tsenses() {
     int   raw    = 0;
     float Vin    = readVcc();
     float Vout   = 0;
-    float R1     = 990;
+    float R1     = 1000;
     float R2     = 0;
     float buffer = 0;
 
@@ -322,6 +336,12 @@ void read_analog_tsenses() {
     Serial.println((float)tempsFromArray(R2)/100, DEC);
 
     Serial.print("\n");
+
+    //TODO a mess with floats and ints
+    calculate_pwm_duty(Vin, R2, 6800);
+
+    // analogWrite(PIN_TSENSE_EMULATOR_CASE, duty);
+    // analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
 }
 
 void ouput_checksum(unsigned int ones_sum) {
@@ -582,8 +602,8 @@ void loop() {
     if (debug) Serial.print("loop() read_fan_speed(): \n");
     read_fan_speed();
 
-    if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
-    calculate_pwm_duty();
+    // if (debug) Serial.print("loop() calculate_pwm_duty(): \n");
+    // calculate_pwm_duty();
 
     if (debug) Serial.print("loop() read_analog_tsenses(): \n");
     read_analog_tsenses();
