@@ -43,7 +43,6 @@
 #define PIN_ANALOG_TSENSE_INPUT_HEXCHANGER         A2
 #define PIN_MODE_ANALOG_TSENSE_INPUT_CASE          INPUT
 #define PIN_MODE_ANALOG_TSENSE_INPUT_HEXCHANGER    INPUT
-int current_pin = PIN_ANALOG_TSENSE_INPUT_CASE;
 
 bool   debug = true;
 
@@ -252,18 +251,15 @@ void read_acs712() {
 }
 
 
-int calculate_pwm_duty(float vcc, float rther, int r1) {
-    //higher values = lower temps
-    int caseVal      = 170;
-    int exchangerVal = 155;
-
+int calculate_pwm_duty(float vcc, float rther) {
     //needed fields:
     // outdoor temps DONE
     // case and heat exchanger thermistor ohms val DONE
     // ds18b20s temperature vals DONE
-    // virtual circuit ohm resitor values
+    // virtual circuit ohm resitor values DONE
     // coarsing values for PID calculation using outside temp
 
+    int r1 = 6800;
     // Vout = Vcc*Rther / R1 + Rther
     float vout = ((vcc/1000) * rther) / (r1 + rther);
 
@@ -275,11 +271,6 @@ int calculate_pwm_duty(float vcc, float rther, int r1) {
     
     Serial.print(" calc duty:");
     Serial.println(duty, DEC);
-
-    // analogWrite(PIN_TSENSE_EMULATOR_CASE, caseVal);
-    // analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
-
-    //TODO: calculate it for real
     return duty;
 }
 
@@ -300,48 +291,64 @@ long readVcc() { long result;
  }
 
 void read_analog_tsenses() {
-    int   raw    = 0;
-    float Vin    = readVcc();
-    float Vout   = 0;
-    float R1     = 1000;
-    float R2     = 0;
-    float buffer = 0;
+    float R1 = 1000;
+    float R2Case = 0;
+    float R2HeatEx = 0;
+    float Vin = readVcc();
 
-    Serial.print("Vin");
+    float VoutCase = 0;
+    float VoutHeatEx  = 0;
+
+    int dutyCase = 0;
+    int dutyHeatEx = 0;
+
+
+    //read 328p thermistor analog pins
+    int rawCase = analogRead(PIN_ANALOG_TSENSE_INPUT_CASE);
+    int rawHeatEx = analogRead(PIN_ANALOG_TSENSE_INPUT_HEXCHANGER);
+
+    //find R2/termistor values for case
+    VoutCase = (rawCase * Vin) / 1024;
+    R2Case = R1 * (Vin / VoutCase) - 1;
+    //and for heat exchanger
+    VoutHeatEx = (rawHeatEx * Vin) / 1024;
+    R2HeatEx = R1 * (Vin / VoutHeatEx) - 1;
+
+    //TODO fix mess with floats and ints
+    dutyCase = calculate_pwm_duty(Vin, R2Case);
+    dutyHeatEx = calculate_pwm_duty(Vin, R2HeatEx);
+
+    Serial.print("Vin ");
     Serial.println(Vin);
-    if (current_pin == PIN_ANALOG_TSENSE_INPUT_CASE) {
-        raw         = analogRead(PIN_ANALOG_TSENSE_INPUT_CASE);
-        current_pin = PIN_ANALOG_TSENSE_INPUT_HEXCHANGER; //swap
-        Serial.print("Case ");
-    }
-    else {
-        raw         = analogRead(PIN_ANALOG_TSENSE_INPUT_HEXCHANGER);
-        current_pin = PIN_ANALOG_TSENSE_INPUT_CASE; //swap back
-        Serial.print("Exchanger ");
-    }
 
-    if (raw) {
-        Serial.print("raw: ");
-        Serial.print(raw);
-        buffer = raw * Vin;
-        Vout   = (buffer) / 1024.0;
-        buffer = (Vin / Vout) - 1;
-        R2     = R1 * buffer;
-        Serial.print("\tVout: ");
-        Serial.print(Vout);
-        Serial.print("\tR2: ");
-        Serial.println(R2);
-    }
+    Serial.print("case raw:\t");
+    Serial.print(rawCase);
+    Serial.print("\tVoutCase: ");
+    Serial.print(VoutCase);
+    Serial.print("\tR2: ");
+    Serial.print(R2Case);
+    Serial.print("\t103AT temp: ");
+    Serial.print((float)tempsFromArray(R2Case)/100, DEC);
+    Serial.print("\t duty: ");
+    Serial.println(dutyCase, DEC);
 
-    Serial.println((float)tempsFromArray(R2)/100, DEC);
+    Serial.print("exchanger raw:\t");
+    Serial.print(rawHeatEx);
+    Serial.print("\tVoutExchanger: ");
+    Serial.print(VoutHeatEx);
+    Serial.print("\tR2: ");
+    Serial.print(R2HeatEx);
+    Serial.print("\t103AT temp: ");
+    Serial.print((float)tempsFromArray(R2HeatEx)/100, DEC);
+    Serial.print("\t duty: ");
+    Serial.println(dutyHeatEx, DEC);
 
-    Serial.print("\n");
+    analogWrite(PIN_TSENSE_EMULATOR_CASE, dutyCase);
+    analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, dutyHeatEx);
 
-    //TODO a mess with floats and ints
-    calculate_pwm_duty(Vin, R2, 6800);
-
-    // analogWrite(PIN_TSENSE_EMULATOR_CASE, duty);
-    // analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, exchangerVal);
+    //debug code with hardwired values
+    // analogWrite(PIN_TSENSE_EMULATOR_CASE, 151);
+    // analogWrite(PIN_TSENSE_EMULATOR_HEXCHANGER, 151);
 }
 
 void ouput_checksum(unsigned int ones_sum) {
